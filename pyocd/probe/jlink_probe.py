@@ -57,11 +57,11 @@ class JLinkProbe(DebugProbe):
         # TypeError is raised by pylink if the JLink DLL cannot be found.
         try:
             return pylink.JLink(
-                    log=TRACE.info,
-                    detailed_log=TRACE.debug,
-                    error=TRACE.error,
-                    warn=TRACE.warn,
-                    )
+                log=TRACE.info,
+                detailed_log=TRACE.debug,
+                error=TRACE.error,
+                warn=TRACE.warn,
+            )
         except TypeError:
             return None
 
@@ -75,7 +75,14 @@ class JLinkProbe(DebugProbe):
             jlink = cls._get_jlink()
             if jlink is None:
                 return []
-            return [cls(cls._format_serial_number(info.SerialNumber)) for info in jlink.connected_emulators()]
+            # First collect serial numbers, then close temporary jlink
+            serial_numbers = [
+                cls._format_serial_number(info.SerialNumber)
+                for info in jlink.connected_emulators()
+            ]
+            jlink.close()
+            # Then create JLinkProbe instances
+            return [cls(sn) for sn in serial_numbers]
         except JLinkException as exc:
             raise cls._convert_exception(exc) from exc
 
@@ -164,11 +171,11 @@ class JLinkProbe(DebugProbe):
     @property
     def capabilities(self):
         return {
-                self.Capability.SWO,
-                self.Capability.BANKED_DP_REGISTERS,
-                self.Capability.APv2_ADDRESSES,
-                self.Capability.PIN_ACCESS,
-                }
+            self.Capability.SWO,
+            self.Capability.BANKED_DP_REGISTERS,
+            self.Capability.APv2_ADDRESSES,
+            self.Capability.PIN_ACCESS,
+        }
 
     def get_accessible_pins(self, group: DebugProbe.PinGroup) -> Tuple[int, int]:
         """@brief Return masks of pins accessible via the .read_pins()/.write_pins() methods.
@@ -185,13 +192,15 @@ class JLinkProbe(DebugProbe):
         assert self.session
 
         try:
-            # Configure UI usage. We must do this here rather than in the ctor because the ctor
-            # doesn't have access to the session.
-            if self.session.options.get('jlink.non_interactive'):
-                self._link.disable_dialog_boxes()
-
+            # First open the device
             self._link.open(self._serial_number_int)
             self._is_open = True
+
+            # Call disable_dialog_boxes after opening
+            # Configure UI usage. We must do this here rather than in the ctor because the ctor
+            # doesn't have access to the session.
+            if self.session.options.get("jlink.non_interactive"):
+                self._link.disable_dialog_boxes()
 
             # Get available wire protocols.
             ifaces = self._link.supported_tifs()
@@ -327,7 +336,7 @@ class JLinkProbe(DebugProbe):
         @param mask Bit mask indicating which pins will be read. The return value will contain only
             bits set in this mask.
         @return Bit mask with the current value of selected pins at each pin's relevant bit position.
-       """
+        """
         try:
             if group is DebugProbe.PinGroup.PROTOCOL_PINS:
                 status = self._link.hardware_status
@@ -642,4 +651,4 @@ class JLinkProbePlugin(Plugin):
                 "Controls whether the J-Link DLL is allowed to present UI dialog boxes and its control "
                 "panel. Note that dialog boxes will actually still be visible, but the default option "
                 "will be chosen automatically after 5 seconds. Default is True."),
-            ]
+        ]
